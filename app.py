@@ -194,7 +194,7 @@ def generate_sus():
 app = dash.Dash(__name__)
 server = app.server
 # -> This part is important for Heroku deployment
-server.secret_key = os.environ["SECRET_KEY"]
+#server.secret_key = os.environ["SECRET_KEY"]
 
 # Ready the database
 uri = os.environ["MONGO_URI_STATS"]
