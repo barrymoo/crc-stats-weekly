@@ -1,12 +1,19 @@
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-from dash.dependencies import Output, Event, Input
+from dash.dependencies import Output, Input
 from datetime import datetime
 import pandas as pd
 import plotly.graph_objs as go
 import pymongo
 import os
+from functools import reduce
+
+
+def query_data():
+    cursor = db["weekly"].find({}).sort("_id", pymongo.ASCENDING)
+    df = pd.DataFrame.from_records(cursor)
+    return df.loc[:, df.columns != "_id"].to_json()
 
 
 def convert_from_datetime(d):
@@ -17,43 +24,42 @@ def convert_to_datetime(d):
     return datetime.strptime(d, parse_format)
 
 
-def generate_layout():
+def generate_layout(data):
     return html.Div(
         children=[
             html.H1(children="CRC Weekly"),
             html.Div(
                 [
                     html.Div(
-                        [dcc.Graph(id="smp-graph", figure=generate_smp())],
+                        [dcc.Graph(id="smp-graph", figure=generate_smp(data))],
                         style={"width": "49%", "display": "inline-block"},
                     ),
                     html.Div(
-                        [dcc.Graph(id="gpu-graph", figure=generate_gpu())],
+                        [dcc.Graph(id="gpu-graph", figure=generate_gpu(data))],
                         style={"width": "49%", "display": "inline-block"},
                     ),
                     html.Div(
-                        [dcc.Graph(id="mpi-graph", figure=generate_mpi())],
+                        [dcc.Graph(id="mpi-graph", figure=generate_mpi(data))],
                         style={"width": "49%", "display": "inline-block"},
                     ),
                     html.Div(
-                        [dcc.Graph(id="htc-graph", figure=generate_htc())],
+                        [dcc.Graph(id="htc-graph", figure=generate_htc(data))],
                         style={"width": "49%", "display": "inline-block"},
                     ),
                     html.Div(
-                        [dcc.Graph(id="sus-graph", figure=generate_sus())],
+                        [dcc.Graph(id="sus-graph", figure=generate_sus(data))],
                         style={"width": "49%", "display": "inline-block"},
                     ),
                 ]
             ),
-            dcc.Interval(id="interval-component", interval=60 * 60 * 1000),
+            html.Div(id="data", style={"display": "none"}),
+            dcc.Interval(id="interval-component", interval=36000000, n_intervals=0),
         ]
     )
 
 
-def generate_for_cluster(cluster):
-    # Generate cursor and dataframe
-    cursor = db["statistics"].find({"cluster": cluster}).sort("_id", pymongo.ASCENDING)
-    df = pd.DataFrame.from_records(cursor)
+def generate_for_cluster(cluster, data):
+    df = pd.read_json(data)
 
     # Sort by the end_date (convert to datetime object
     df["end_date"] = df["end_date"].apply(lambda x: convert_to_datetime(x))
@@ -62,25 +68,37 @@ def generate_for_cluster(cluster):
     # Convert back to string
     df["end_date"] = df["end_date"].apply(lambda x: convert_from_datetime(x))
 
+    # Get data
+    df["percent_alloc"] = df[cluster].apply(
+        lambda x: 100.0 * float(x["mean_alloc"]) / float(x["mean_total"])
+    )
+    df["unique_users_count"] = df[cluster].apply(lambda x: x["unique_users_count"])
+    df["mean_wait_time"] = df[cluster].apply(lambda x: x["mean_wait_time"])
+
     # Generate a 6 week mean
-    df["six_week_mean"] = df["allocated"].rolling(window=6).mean().fillna(0.0)
+    df["six_week_mean"] = df["percent_alloc"] \
+        .rolling(window=6) \
+        .mean() \
+        .fillna(0.0)
 
     # Generate the traces
     traces = [
         go.Scatter(
-            x=df["end_date"], y=df["allocated"], name="used", mode="lines+markers"
+            x=df["end_date"],
+            y=df["percent_alloc"],
+            name="used",
+            mode="lines+markers"
         ),
-        go.Scatter(x=df["end_date"], y=df["down"], name="down", mode="lines+markers"),
         go.Scatter(
             x=df["end_date"],
-            y=df["unique_users"],
+            y=df["unique_users_count"],
             name="unique users",
             mode="lines+markers",
             yaxis="y2",
         ),
         go.Scatter(
             x=df["end_date"],
-            y=df["wait_time"],
+            y=df["mean_wait_time"],
             name="wait time (hrs)",
             mode="lines+markers",
             yaxis="y2",
@@ -110,7 +128,7 @@ def generate_for_cluster(cluster):
             "side": "right",
             "titlefont": {"size": 12},
             "tickfont": {"size": 12},
-            "range": [0, df["unique_users"].max() + 5],
+            "range": [0, df["unique_users_count"].max() + 5],
         },
         xaxis={
             "title": "Week End Date (MM/DD/YY)",
@@ -125,58 +143,94 @@ def generate_for_cluster(cluster):
     return {"data": traces, "layout": layout}
 
 
-def generate_smp():
-    return generate_for_cluster("smp")
+def generate_smp(data):
+    return generate_for_cluster("smp", data)
 
 
-def generate_gpu():
-    return generate_for_cluster("gpu")
+def generate_gpu(data):
+    return generate_for_cluster("gpu", data)
 
 
-def generate_mpi():
-    return generate_for_cluster("mpi")
+def generate_mpi(data):
+    return generate_for_cluster("mpi", data)
 
 
-def generate_htc():
-    return generate_for_cluster("htc")
+def generate_htc(data):
+    return generate_for_cluster("htc", data)
 
 
-def generate_sus():
-    # Generate cursor and dataframe
-    cursor = db2["sus"].find({}).sort("_id", pymongo.ASCENDING)
-    df = pd.DataFrame.from_records(cursor)
+def generate_sus(data):
+    df = pd.read_json(data)
 
     # Sort by the end_date (convert to datetime object
-    df["end_date"] = df["end_date"].apply(
-        lambda x: convert_to_datetime("{}-00:00:00".format(x))
-    )
+    df["end_date"] = df["end_date"].apply(lambda x: convert_to_datetime(x))
     df.sort_values(["end_date"], inplace=True)
 
     # Convert back to string
     df["end_date"] = df["end_date"].apply(lambda x: convert_from_datetime(x))
 
+    # Remove any NaNs from allocated_sus
+    df = df.dropna()
+
+    # Remove any blanks from theoretical_max_sus
+    def remove_blanks(row):
+        if row["smp"]["theoretical_max_sus"] == "":
+            row["smp"] = {}
+        return row
+
+    df = df.apply(remove_blanks, axis=1)
+    df = df[df["smp"] != {}]
+
+    # Aggregate results
+    def reduce_column(row, col):
+        return reduce(
+            lambda x, y: x + y,
+            [float(row[c][col]) for c in clusters]
+        )
+
+    def reduce_theoretical_max_sus(x):
+        return reduce_column(x, "theoretical_max_sus")
+
+    def reduce_consumed_sus(x):
+        return reduce_column(x, "consumed_sus")
+
+    df["theoretical_max_sus"] = df.apply(reduce_theoretical_max_sus, axis=1)
+    df["consumed_sus"] = df.apply(reduce_consumed_sus, axis=1)
+
+    window = 4
+    df["rolling_consumed"] = (
+        df["consumed_sus"].rolling(window=window).mean().fillna(0.0)
+    )
+
     traces = [
         go.Scatter(
             x=df["end_date"],
-            y=df["sus_per_year"],
+            y=df["theoretical_max_sus"] * 52.0,
             name="Total SUs / year * 0.85",
             mode="lines+markers",
         ),
         go.Scatter(
             x=df["end_date"],
-            y=df["alloc_sus"],
+            y=df["allocated_sus"],
             name="Currently Allocated",
             mode="lines+markers",
         ),
         go.Scatter(
-            x=df["end_date"], y=df["used_sus"], name="Used SUs", mode="lines+markers"
+            x=df["end_date"][window:],
+            y=df["rolling_consumed"][window:] * 52.0,
+            name="Consumed SUs",
+            mode="lines+markers",
         ),
     ]
 
     layout = go.Layout(
         title="Service Units",
         titlefont={"size": 12},
-        yaxis={"title": "Number", "titlefont": {"size": 12}, "tickfont": {"size": 12}},
+        yaxis={
+            "title": "Number",
+            "titlefont": {"size": 12},
+            "tickfont": {"size": 12}
+        },
         xaxis={
             "title": "Week End Date (MM/DD/YY)",
             "tickangle": 45,  # 'nticks': 4,
@@ -193,60 +247,72 @@ def generate_sus():
 # Initialize the Dash app
 app = dash.Dash(__name__)
 server = app.server
-# -> This part is important for Heroku deployment
-server.secret_key = os.environ["SECRET_KEY"]
 
 # Ready the database
-uri = os.environ["MONGO_URI_STATS"]
+uri = os.environ["MONGO_URI"]
 client = pymongo.MongoClient(uri)
-db = client.get_default_database()
-
-uri2 = os.environ["MONGO_URI_SUS"]
-client2 = pymongo.MongoClient(uri2)
-db2 = client2.get_default_database()
+db = client.get_database()
 
 # Time formats
 parse_format = "%m/%d/%y-%H:%M:%S"
 print_format = "%m/%d/%y"
 
+# Clusters
+clusters = ["smp", "gpu", "mpi", "htc"]
+
+initial_data = query_data()
+
 # The app layout
-app.layout = generate_layout
+app.layout = lambda: generate_layout(initial_data)
+
+
+@app.callback(
+    Output("data", "children"),
+    [Input("interval-component", "n_intervals")]
+)
+def query_data_callback(_):
+    return query_data()
 
 
 # Update the plot every interval tick
 @app.callback(
-    Output("smp-graph", "figure"), events=[Event("interval-component", "interval")]
+    Output("smp-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("data", "children")],
 )
-def update_smp():
-    return generate_smp()
+def update_smp(_, data):
+    return generate_smp(data)
 
 
 @app.callback(
-    Output("gpu-graph", "figure"), events=[Event("interval-component", "interval")]
+    Output("gpu-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("data", "children")],
 )
-def update_gpu():
-    return generate_gpu()
+def update_gpu(_, data):
+    return generate_gpu(data)
 
 
 @app.callback(
-    Output("mpi-graph", "figure"), events=[Event("interval-component", "interval")]
+    Output("mpi-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("data", "children")],
 )
-def update_mpi():
-    return generate_mpi()
+def update_mpi(_, data):
+    return generate_mpi(data)
 
 
 @app.callback(
-    Output("htc-graph", "figure"), events=[Event("interval-component", "interval")]
+    Output("htc-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("data", "children")],
 )
-def update_htc():
-    return generate_htc()
+def update_htc(_, data):
+    return generate_htc(data)
 
 
 @app.callback(
-    Output("sus-graph", "figure"), events=[Event("interval-component", "interval")]
+    Output("sus-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("data", "children")],
 )
-def update_htc():
-    return generate_sus()
+def update_sus(_, data):
+    return generate_sus(data)
 
 
 # Our main function
