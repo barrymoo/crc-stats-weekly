@@ -206,7 +206,7 @@ def generate_sus(data):
         go.Scatter(
             x=df["end_date"],
             y=df["theoretical_max_sus"] * 52.0,
-            name="Total SUs / year * 0.85",
+            name="Total SUs / year",
             mode="lines+markers",
         ),
         go.Scatter(
@@ -216,9 +216,15 @@ def generate_sus(data):
             mode="lines+markers",
         ),
         go.Scatter(
+            x=df["end_date"],
+            y=df["slurm_consumed"],
+            name="Slurm Consumed SUs",
+            mode="lines+markers",
+        ),
+        go.Scatter(
             x=df["end_date"][window:],
             y=df["rolling_consumed"][window:] * 52.0,
-            name="Consumed SUs",
+            name="Projected Consumed SUs",
             mode="lines+markers",
         ),
     ]
@@ -245,7 +251,10 @@ def generate_sus(data):
 
 
 # Initialize the Dash app
-app = dash.Dash(__name__)
+app = dash.Dash(
+    __name__,
+    external_stylesheets=["https://codepen.io/barrymoo/pen/rbaKVJ.css"],
+)
 server = app.server
 
 # Ready the database
