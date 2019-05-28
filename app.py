@@ -76,18 +76,12 @@ def generate_for_cluster(cluster, data):
     df["mean_wait_time"] = df[cluster].apply(lambda x: x["mean_wait_time"])
 
     # Generate a 6 week mean
-    df["six_week_mean"] = df["percent_alloc"] \
-        .rolling(window=6) \
-        .mean() \
-        .fillna(0.0)
+    df["six_week_mean"] = df["percent_alloc"].rolling(window=window).mean().fillna(0.0)
 
     # Generate the traces
     traces = [
         go.Scatter(
-            x=df["end_date"],
-            y=df["percent_alloc"],
-            name="used",
-            mode="lines+markers"
+            x=df["end_date"], y=df["percent_alloc"], name="used", mode="lines+markers"
         ),
         go.Scatter(
             x=df["end_date"],
@@ -183,10 +177,7 @@ def generate_sus(data):
 
     # Aggregate results
     def reduce_column(row, col):
-        return reduce(
-            lambda x, y: x + y,
-            [float(row[c][col]) for c in clusters]
-        )
+        return reduce(lambda x, y: x + y, [float(row[c][col]) for c in clusters])
 
     def reduce_theoretical_max_sus(x):
         return reduce_column(x, "theoretical_max_sus")
@@ -197,10 +188,9 @@ def generate_sus(data):
     df["theoretical_max_sus"] = df.apply(reduce_theoretical_max_sus, axis=1)
     df["consumed_sus"] = df.apply(reduce_consumed_sus, axis=1)
 
-    window = 6
-    df["rolling_consumed"] = (
-        df["consumed_sus"].rolling(window=window).mean().fillna(0.0)
-    )
+    df["projected"] = df["consumed_sus"].rolling(window=window).mean().fillna(0.0)
+
+    rolling_points = df.shape[0] - window + 1
 
     traces = [
         go.Scatter(
@@ -222,8 +212,8 @@ def generate_sus(data):
             mode="lines+markers",
         ),
         go.Scatter(
-            x=df["end_date"][window:],
-            y=df["rolling_consumed"][window:] * 52.0,
+            x=df["end_date"][-rolling_points:],
+            y=df["projected"][-rolling_points:] * 52.0,
             name="Projected Consumed SUs",
             mode="lines+markers",
         ),
@@ -232,11 +222,7 @@ def generate_sus(data):
     layout = go.Layout(
         title="Service Units",
         titlefont={"size": 12},
-        yaxis={
-            "title": "Number",
-            "titlefont": {"size": 12},
-            "tickfont": {"size": 12}
-        },
+        yaxis={"title": "Number", "titlefont": {"size": 12}, "tickfont": {"size": 12}},
         xaxis={
             "title": "Week End Date (MM/DD/YY)",
             "tickangle": 45,  # 'nticks': 4,
@@ -252,8 +238,7 @@ def generate_sus(data):
 
 # Initialize the Dash app
 app = dash.Dash(
-    __name__,
-    external_stylesheets=["https://codepen.io/barrymoo/pen/rbaKVJ.css"],
+    __name__, external_stylesheets=["https://codepen.io/barrymoo/pen/rbaKVJ.css"]
 )
 server = app.server
 
@@ -269,16 +254,16 @@ print_format = "%m/%d/%y"
 # Clusters
 clusters = ["smp", "gpu", "mpi", "htc"]
 
+# Window
+window = 6
+
 initial_data = query_data()
 
 # The app layout
 app.layout = lambda: generate_layout(initial_data)
 
 
-@app.callback(
-    Output("data", "children"),
-    [Input("interval-component", "n_intervals")]
-)
+@app.callback(Output("data", "children"), [Input("interval-component", "n_intervals")])
 def query_data_callback(_):
     return query_data()
 
