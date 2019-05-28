@@ -197,7 +197,7 @@ def generate_sus(data):
     df["theoretical_max_sus"] = df.apply(reduce_theoretical_max_sus, axis=1)
     df["consumed_sus"] = df.apply(reduce_consumed_sus, axis=1)
 
-    window = 4
+    window = 6
     df["rolling_consumed"] = (
         df["consumed_sus"].rolling(window=window).mean().fillna(0.0)
     )
