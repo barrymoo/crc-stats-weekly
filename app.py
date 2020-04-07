@@ -50,6 +50,10 @@ def generate_layout(data):
                         [dcc.Graph(id="sus-graph", figure=generate_sus(data))],
                         style={"width": "49%", "display": "inline-block"},
                     ),
+                    html.Div(
+                        [dcc.Graph(id="storage-graph", figure=generate_storage(data))],
+                        style={"width": "49%", "display": "inline-block"},
+                    ),
                 ]
             ),
             html.Div(id="data", style={"display": "none"}),
@@ -73,7 +77,7 @@ def generate_for_cluster(cluster, data):
         lambda x: 100.0 * float(x["mean_alloc"]) / float(x["mean_total"])
     )
     df["unique_users_count"] = df[cluster].apply(lambda x: x["unique_users_count"])
-    df["mean_wait_time"] = df[cluster].apply(lambda x: x["mean_wait_time"])
+    #df["mean_wait_time"] = df[cluster].apply(lambda x: x["mean_wait_time"])
 
     # Generate a 6 week mean
     df["six_week_mean"] = df["percent_alloc"].rolling(window=window).mean().fillna(0.0)
@@ -90,13 +94,13 @@ def generate_for_cluster(cluster, data):
             mode="lines+markers",
             yaxis="y2",
         ),
-        go.Scatter(
-            x=df["end_date"],
-            y=df["mean_wait_time"],
-            name="wait time (hrs)",
-            mode="lines+markers",
-            yaxis="y2",
-        ),
+        #go.Scatter(
+        #    x=df["end_date"],
+        #    y=df["mean_wait_time"],
+        #    name="wait time (hrs)",
+        #    mode="lines+markers",
+        #    yaxis="y2",
+        #),
         go.Scatter(
             x=df["end_date"][6:],
             y=df["six_week_mean"][6:],
@@ -160,11 +164,11 @@ def generate_sus(data):
     df["end_date"] = df["end_date"].apply(lambda x: convert_to_datetime(x))
     df.sort_values(["end_date"], inplace=True)
 
+    # Only keep end dates greater than 04/15/19-00:00:00
+    df = df[df["end_date"] > convert_to_datetime("04/15/19-00:00:00")]
+
     # Convert back to string
     df["end_date"] = df["end_date"].apply(lambda x: convert_from_datetime(x))
-
-    # Remove any NaNs from allocated_sus
-    df = df.dropna()
 
     # Remove any blanks from theoretical_max_sus
     def remove_blanks(row):
@@ -211,18 +215,56 @@ def generate_sus(data):
             name="Slurm Consumed SUs",
             mode="lines+markers",
         ),
-        go.Scatter(
-            x=df["end_date"][-rolling_points:],
-            y=df["projected"][-rolling_points:] * 52.0,
-            name="Projected Consumed SUs",
-            mode="lines+markers",
-        ),
+        #go.Scatter(
+        #    x=df["end_date"][-rolling_points:],
+        #    y=df["projected"][-rolling_points:] * 52.0,
+        #    name="Projected Consumed SUs",
+        #    mode="lines+markers",
+        #),
     ]
 
     layout = go.Layout(
         title="Service Units",
         titlefont={"size": 12},
         yaxis={"title": "Number", "titlefont": {"size": 12}, "tickfont": {"size": 12}},
+        xaxis={
+            "title": "Week End Date (MM/DD/YY)",
+            "tickangle": 45,  # 'nticks': 4,
+            "titlefont": {"size": 12},
+            "tickfont": {"size": 12},
+        },
+        legend={"font": {"size": 12}},
+    )
+
+    # Return the plotly data
+    return {"data": traces, "layout": layout}
+
+def generate_storage(data):
+    df = pd.read_json(data)
+
+    # Sort by the end_date (convert to datetime object
+    df["end_date"] = df["end_date"].apply(lambda x: convert_to_datetime(x))
+    df.sort_values(["end_date"], inplace=True)
+
+    # Only keep end dates greater than 04/07/20-00:00:00
+    df = df[df["end_date"] > convert_to_datetime("04/07/20-00:00:00")]
+
+    # Convert back to string
+    df["end_date"] = df["end_date"].apply(lambda x: convert_from_datetime(x))
+
+    traces = [
+        go.Scatter(
+            x=df["end_date"],
+            y=df["end_date"],
+            name="Something Here...",
+            mode="lines+markers",
+        ),
+    ]
+
+    layout = go.Layout(
+        title="Storage Usage",
+        titlefont={"size": 12},
+        yaxis={"title": "Something Here...", "titlefont": {"size": 12}, "tickfont": {"size": 12}},
         xaxis={
             "title": "Week End Date (MM/DD/YY)",
             "tickangle": 45,  # 'nticks': 4,
@@ -307,6 +349,14 @@ def update_htc(_, data):
 )
 def update_sus(_, data):
     return generate_sus(data)
+
+
+@app.callback(
+    Output("storage-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("data", "children")],
+)
+def update_storage(_, data):
+    return generate_storage(data)
 
 
 # Our main function
