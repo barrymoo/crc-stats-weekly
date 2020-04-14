@@ -77,7 +77,7 @@ def generate_for_cluster(cluster, data):
         lambda x: 100.0 * float(x["mean_alloc"]) / float(x["mean_total"])
     )
     df["unique_users_count"] = df[cluster].apply(lambda x: x["unique_users_count"])
-    #df["mean_wait_time"] = df[cluster].apply(lambda x: x["mean_wait_time"])
+    # df["mean_wait_time"] = df[cluster].apply(lambda x: x["mean_wait_time"])
 
     # Generate a 6 week mean
     df["six_week_mean"] = df["percent_alloc"].rolling(window=window).mean().fillna(0.0)
@@ -94,13 +94,13 @@ def generate_for_cluster(cluster, data):
             mode="lines+markers",
             yaxis="y2",
         ),
-        #go.Scatter(
+        # go.Scatter(
         #    x=df["end_date"],
         #    y=df["mean_wait_time"],
         #    name="wait time (hrs)",
         #    mode="lines+markers",
         #    yaxis="y2",
-        #),
+        # ),
         go.Scatter(
             x=df["end_date"][6:],
             y=df["six_week_mean"][6:],
@@ -215,12 +215,12 @@ def generate_sus(data):
             name="Slurm Consumed SUs",
             mode="lines+markers",
         ),
-        #go.Scatter(
+        # go.Scatter(
         #    x=df["end_date"][-rolling_points:],
         #    y=df["projected"][-rolling_points:] * 52.0,
         #    name="Projected Consumed SUs",
         #    mode="lines+markers",
-        #),
+        # ),
     ]
 
     layout = go.Layout(
@@ -239,6 +239,7 @@ def generate_sus(data):
     # Return the plotly data
     return {"data": traces, "layout": layout}
 
+
 def generate_storage(data):
     df = pd.read_json(data)
 
@@ -254,9 +255,45 @@ def generate_storage(data):
 
     traces = [
         go.Scatter(
+            x=df["end_date"], y=df["zfs1_used"], name="ZFS-1 Used", mode="lines+markers"
+        ),
+        go.Scatter(
             x=df["end_date"],
-            y=df["end_date"],
-            name="Something Here...",
+            y=df["zfs1_total"],
+            name="ZFS-1 Total",
+            mode="lines+markers",
+        ),
+        go.Scatter(
+            x=df["end_date"], y=df["zfs2_used"], name="ZFS-2 Used", mode="lines+markers"
+        ),
+        go.Scatter(
+            x=df["end_date"],
+            y=df["zfs2_total"],
+            name="ZFS-2 Total",
+            mode="lines+markers",
+        ),
+        go.Scatter(
+            x=df["end_date"],
+            y=df["bgfs_meta_used"],
+            name="BGFS Metadata Used",
+            mode="lines+markers",
+        ),
+        go.Scatter(
+            x=df["end_date"],
+            y=df["bgfs_meta_total"],
+            name="BGFS Metadata Total",
+            mode="lines+markers",
+        ),
+        go.Scatter(
+            x=df["end_date"],
+            y=df["bgfs_stor_used"],
+            name="BGFS Storage Used",
+            mode="lines+markers",
+        ),
+        go.Scatter(
+            x=df["end_date"],
+            y=df["bgfs_stor_total"],
+            name="BGFS Storage Total",
             mode="lines+markers",
         ),
     ]
@@ -264,7 +301,11 @@ def generate_storage(data):
     layout = go.Layout(
         title="Storage Usage",
         titlefont={"size": 12},
-        yaxis={"title": "Something Here...", "titlefont": {"size": 12}, "tickfont": {"size": 12}},
+        yaxis={
+            "title": "Capacity (TB)",
+            "titlefont": {"size": 12},
+            "tickfont": {"size": 12},
+        },
         xaxis={
             "title": "Week End Date (MM/DD/YY)",
             "tickangle": 45,  # 'nticks': 4,
