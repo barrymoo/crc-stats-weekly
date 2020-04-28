@@ -247,8 +247,8 @@ def generate_storage(data):
     df["end_date"] = df["end_date"].apply(lambda x: convert_to_datetime(x))
     df.sort_values(["end_date"], inplace=True)
 
-    # Only keep end dates greater than 04/07/20-00:00:00
-    df = df[df["end_date"] > convert_to_datetime("04/07/20-00:00:00")]
+    # Only keep end dates greater than 04/25/20-00:00:00
+    df = df[df["end_date"] > convert_to_datetime("04/25/20-00:00:00")]
 
     # Convert back to string
     df["end_date"] = df["end_date"].apply(lambda x: convert_from_datetime(x))
@@ -264,12 +264,24 @@ def generate_storage(data):
             mode="lines+markers",
         ),
         go.Scatter(
+            x=df["end_date"],
+            y=df["zfs1_committed"],
+            name="ZFS-1 Committed",
+            mode="lines+markers",
+        ),
+        go.Scatter(
             x=df["end_date"], y=df["zfs2_used"], name="ZFS-2 Used", mode="lines+markers"
         ),
         go.Scatter(
             x=df["end_date"],
             y=df["zfs2_total"],
             name="ZFS-2 Total",
+            mode="lines+markers",
+        ),
+        go.Scatter(
+            x=df["end_date"],
+            y=df["zfs2_committed"],
+            name="ZFS-2 Committed",
             mode="lines+markers",
         ),
         go.Scatter(
@@ -294,6 +306,12 @@ def generate_storage(data):
             x=df["end_date"],
             y=df["bgfs_stor_total"],
             name="BGFS Storage Total",
+            mode="lines+markers",
+        ),
+        go.Scatter(
+            x=df["end_date"],
+            y=df["bgfs_committed"],
+            name="BGFS Committed",
             mode="lines+markers",
         ),
     ]
