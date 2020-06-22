@@ -8,12 +8,20 @@ import plotly.graph_objs as go
 import pymongo
 import os
 from functools import reduce
+import pprint
+import json
 
 
 def query_data():
     cursor = db["weekly"].find({}).sort("_id", pymongo.ASCENDING)
     df = pd.DataFrame.from_records(cursor)
     return df.loc[:, df.columns != "_id"].to_json()
+
+
+def query_waittimes():
+    cursor = db["waittimes"].find({}).sort("_id", pymongo.ASCENDING)
+    df = pd.DataFrame.from_records(cursor)
+    return df.loc[:, (df.columns != "_id")].to_json()
 
 
 def convert_from_datetime(d):
@@ -24,7 +32,7 @@ def convert_to_datetime(d):
     return datetime.strptime(d, parse_format)
 
 
-def generate_layout(data):
+def generate_layout(data, waittimes):
     return html.Div(
         children=[
             html.H1(children="CRC Weekly"),
@@ -54,9 +62,46 @@ def generate_layout(data):
                         [dcc.Graph(id="storage-graph", figure=generate_storage(data))],
                         style={"width": "49%", "display": "inline-block"},
                     ),
+                    html.Div(
+                        [
+                            dcc.Graph(
+                                id="waittimes-smp-graph",
+                                figure=generate_waittimes("smp", waittimes),
+                            )
+                        ],
+                        style={"width": "49%", "display": "inline-block"},
+                    ),
+                    html.Div(
+                        [
+                            dcc.Graph(
+                                id="waittimes-gpu-graph",
+                                figure=generate_waittimes("gpu", waittimes),
+                            )
+                        ],
+                        style={"width": "49%", "display": "inline-block"},
+                    ),
+                    html.Div(
+                        [
+                            dcc.Graph(
+                                id="waittimes-mpi-graph",
+                                figure=generate_waittimes("mpi", waittimes),
+                            )
+                        ],
+                        style={"width": "49%", "display": "inline-block"},
+                    ),
+                    html.Div(
+                        [
+                            dcc.Graph(
+                                id="waittimes-htc-graph",
+                                figure=generate_waittimes("htc", waittimes),
+                            )
+                        ],
+                        style={"width": "49%", "display": "inline-block"},
+                    ),
                 ]
             ),
             html.Div(id="data", style={"display": "none"}),
+            html.Div(id="waittimes", style={"display": "none"}),
             dcc.Interval(id="interval-component", interval=36000000, n_intervals=0),
         ]
     )
@@ -337,6 +382,78 @@ def generate_storage(data):
     return {"data": traces, "layout": layout}
 
 
+def return_negative_if_nan(d, included, time_frame, row):
+    r = d[included][time_frame][row]
+    if r:
+        return r
+    else:
+        return -1.0
+
+
+def build_waittime_scatter(df, cluster, included, time_frame, row):
+    return go.Scatter(
+        x=df["end_date"],
+        y=df[cluster].apply(
+            lambda x: return_negative_if_nan(x, included, time_frame, row)
+        ),
+        name=f"{time_frame}",
+        mode="lines+markers",
+    )
+
+
+def generate_waittimes(cluster, data):
+    df = pd.read_json(data)
+
+    # Sort by the end_date (convert to datetime object
+    df["end_date"] = df["end_date"].apply(lambda x: convert_to_datetime(x))
+    df.sort_values(["end_date"], inplace=True)
+
+    # Convert back to string
+    df["end_date"] = df["end_date"].apply(lambda x: convert_from_datetime(x))
+
+    traces = [
+        build_waittime_scatter(df, cluster, "included", "10m-12h", "mean_hours"),
+        build_waittime_scatter(df, cluster, "included", "12h-1d", "mean_hours"),
+        build_waittime_scatter(df, cluster, "included", "1d-2d", "mean_hours"),
+        build_waittime_scatter(df, cluster, "included", "2d-3d", "mean_hours"),
+        build_waittime_scatter(df, cluster, "included", "3d-4d", "mean_hours"),
+        build_waittime_scatter(df, cluster, "included", "4d-5d", "mean_hours"),
+        build_waittime_scatter(df, cluster, "included", "5d-6d", "mean_hours"),
+    ]
+
+    layout = go.Layout(
+        title=f"{cluster} wait times",
+        titlefont={"size": 12},
+        yaxis={"title": "Hours", "titlefont": {"size": 12}, "tickfont": {"size": 12}},
+        xaxis={
+            "title": "Week End Date (MM/DD/YY)",
+            "tickangle": 45,  # 'nticks': 4,
+            "titlefont": {"size": 12},
+            "tickfont": {"size": 12},
+        },
+        legend={"font": {"size": 12}},
+    )
+
+    # Return the plotly data
+    return {"data": traces, "layout": layout}
+
+
+def generate_waittimes_smp(data):
+    return generate_waittimes("smp", data)
+
+
+def generate_waittimes_gpu(data):
+    return generate_waittimes("gpu", data)
+
+
+def generate_waittimes_mpi(data):
+    return generate_waittimes("mpi", data)
+
+
+def generate_waittimes_htc(data):
+    return generate_waittimes("htc", data)
+
+
 # Initialize the Dash app
 app = dash.Dash(
     __name__, external_stylesheets=["https://codepen.io/barrymoo/pen/rbaKVJ.css"]
@@ -359,14 +476,22 @@ clusters = ["smp", "gpu", "mpi", "htc"]
 window = 6
 
 initial_data = query_data()
+initial_waittimes = query_waittimes()
 
 # The app layout
-app.layout = lambda: generate_layout(initial_data)
+app.layout = lambda: generate_layout(initial_data, initial_waittimes)
 
 
 @app.callback(Output("data", "children"), [Input("interval-component", "n_intervals")])
 def query_data_callback(_):
     return query_data()
+
+
+@app.callback(
+    Output("waittimes", "children"), [Input("interval-component", "n_intervals")]
+)
+def query_waittimes_callback(_):
+    return query_waittimes()
 
 
 # Update the plot every interval tick
@@ -416,6 +541,38 @@ def update_sus(_, data):
 )
 def update_storage(_, data):
     return generate_storage(data)
+
+
+@app.callback(
+    Output("waittimes-smp-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("waittimes", "children")],
+)
+def update_smp_waittimes(_, data):
+    return generate_waittimes("smp", data)
+
+
+@app.callback(
+    Output("waittimes-mpi-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("waittimes", "children")],
+)
+def update_mpi_waittimes(_, data):
+    return generate_waittimes("mpi", data)
+
+
+@app.callback(
+    Output("waittimes-gpu-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("waittimes", "children")],
+)
+def update_gpu_waittimes(_, data):
+    return generate_waittimes("gpu", data)
+
+
+@app.callback(
+    Output("waittimes-htc-graph", "figure"),
+    [Input("interval-component", "n_intervals"), Input("waittimes", "children")],
+)
+def update_htc_waittimes(_, data):
+    return generate_waittimes("htc", data)
 
 
 # Our main function
