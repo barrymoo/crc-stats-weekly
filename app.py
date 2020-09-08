@@ -13,12 +13,16 @@ import json
 
 
 def query_data():
+    client = pymongo.MongoClient(uri)
+    db = client.get_database()
     cursor = db["weekly"].find({}).sort("_id", pymongo.ASCENDING)
     df = pd.DataFrame.from_records(cursor)
     return df.loc[:, df.columns != "_id"].to_json()
 
 
 def query_waittimes():
+    client = pymongo.MongoClient(uri)
+    db = client.get_database()
     cursor = db["waittimes"].find({}).sort("_id", pymongo.ASCENDING)
     df = pd.DataFrame.from_records(cursor)
     return df.loc[:, (df.columns != "_id")].to_json()
@@ -462,8 +466,6 @@ server = app.server
 
 # Ready the database
 uri = os.environ["MONGO_URI"]
-client = pymongo.MongoClient(uri)
-db = client.get_database()
 
 # Time formats
 parse_format = "%m/%d/%y-%H:%M:%S"
